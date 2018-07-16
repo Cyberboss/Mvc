@@ -1,6 +1,7 @@
 ﻿// Copyright (c) .NET Foundation. All rights reserved.
 // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 
+using System;
 using System.IO;
 using Microsoft.AspNetCore.Analyzer.Testing;
 using Microsoft.AspNetCore.Testing;
@@ -19,7 +20,10 @@ namespace Microsoft.AspNetCore.Mvc.Analyzers.Infrastructure
                 throw new FileNotFoundException($"TestFile {testMethod} could not be found at {filePath}.", filePath);
             }
 
-            var fileContent = File.ReadAllText(filePath);
+            var fileContent = File.ReadAllText(filePath)
+                .Replace("_INPUT_", "_TEST_", StringComparison.Ordinal)
+                .Replace("_OUTPUT_", "_TEST_", StringComparison.Ordinal);
+
             return TestSource.Read(fileContent);
         }
 

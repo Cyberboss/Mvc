@@ -1,7 +1,7 @@
 ﻿using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.ApiExplorer;
 
-namespace Microsoft.AspNetCore.Mvc.Analyzers._INPUT_
+namespace Microsoft.AspNetCore.Mvc.Analyzers._OUTPUT_
 {
     [ApiController]
     [ApiConventionType(typeof(ExtractToConvention_AddsAttributesToExistingConventionMethodConvention))]
@@ -27,6 +27,7 @@ namespace Microsoft.AspNetCore.Mvc.Analyzers._INPUT_
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ApiConventionNameMatch(ApiConventionNameMatchBehavior.Prefix)]
+        [ProducesResponseType(401)]
         public static void Get(
             [ApiConventionNameMatch(ApiConventionNameMatchBehavior.Suffix)]
             [ApiConventionTypeMatch(ApiConventionTypeMatchBehavior.Any)]

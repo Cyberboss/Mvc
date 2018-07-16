@@ -17,21 +17,35 @@ namespace Microsoft.AspNetCore.Mvc.Analyzers
         private ApiConvention_ExtractToConventionCodeFixRunner CodeFixRunner { get; } = new ApiConvention_ExtractToConventionCodeFixRunner();
 
         [Fact]
-        public async Task ExtractToConvention_AddsAttributesToExistingConventionMethod()
+        public Task ExtractToConvention_AddsAttributesToExistingConventionMethod() => RunTest();
+
+        [Fact]
+        public Task ExtractToConvention_AddsNewConventionMethodToExistingConventionType() => RunTest();
+
+        private async Task RunTest([CallerMemberName] string testMethod = "")
         {
-            var project = GetProject();
+            // Arrange
+            var expected = GetExpectedOutput(testMethod);
+            var project = GetProject(testMethod);
+
+            // Act
             var diagnostics = await AnalyzerRunner.GetDiagnosticsAsync(project);
+            var actual = await CodeFixRunner.ApplyCodeFixAsync(project, diagnostics);
 
-            var actualCode = await CodeFixRunner.ApplyCodeFixAsync(project, diagnostics);
-
-            Assert.NotNull(actualCode);
+            // Assert
+            Assert.Equal(expected, actual);
         }
 
-
-        private Project GetProject([CallerMemberName] string testMethod = "")
+        private Project GetProject(string testMethod)
         {
             var testSource = MvcTestSource.Read(GetType().Name, testMethod);
             return DiagnosticProject.Create(GetType().Assembly, new[] { testSource.Source });
+        }
+
+        private string GetExpectedOutput(string testMethod)
+        {
+            var testSource = MvcTestSource.Read(GetType().Name, testMethod + ".Output");
+            return testSource.Source;
         }
 
         private class ApiConvention_ExtractToConventionCodeFixRunner : CodeFixRunner
@@ -43,10 +57,11 @@ namespace Microsoft.AspNetCore.Mvc.Analyzers
             public Task<string> ApplyCodeFixAsync(Project project, Diagnostic[] diagnostics)
             {
                 var document = Assert.Single(project.Documents);
+                Assert.NotEmpty(diagnostics);
                 var diagnostic = diagnostics[0];
 
                 return ApplyCodeFixAsync(
-                    new ApiConvention_ExtractToConventionCodeFixProvider(),
+                    new ExtractToExistingApiConventionCodeFixProvider(),
                     document,
                     diagnostic);
             }

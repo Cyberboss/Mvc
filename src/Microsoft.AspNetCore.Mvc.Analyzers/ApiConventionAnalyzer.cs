@@ -3,7 +3,9 @@
 
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Globalization;
 using System.Linq;
+using System.Threading;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -14,6 +16,9 @@ namespace Microsoft.AspNetCore.Mvc.Analyzers
     [DiagnosticAnalyzer(LanguageNames.CSharp)]
     public class ApiConventionAnalyzer : DiagnosticAnalyzer
     {
+        internal const string ApiConventionInSourceKey = nameof(ApiConventionInSourceKey);
+        internal const string StatusCodeKey = nameof(StatusCodeKey);
+
         public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics { get; } = ImmutableArray.Create(
             DiagnosticDescriptors.MVC1004_ActionReturnsUndocumentedStatusCode,
             DiagnosticDescriptors.MVC1005_ActionReturnsUndocumentedSuccessResult,
@@ -51,32 +56,51 @@ namespace Microsoft.AspNetCore.Mvc.Analyzers
                     return;
                 }
 
-                var conventionAttributes = GetConventionTypeAttributes(symbolCache, method);
-                var declaredResponseMetadata = SymbolApiResponseMetadataProvider.GetDeclaredResponseMetadata(symbolCache, method, conventionAttributes);
+                var declaredResponseMetadata = SymbolApiResponseMetadataProvider.GetDeclaredResponseMetadata(symbolCache, method);
+                var hasUnreadableStatusCodes = !SymbolApiResponseMetadataProvider.TryGetActualResponseMetadata(symbolCache, semanticModel, methodSyntax, cancellationToken, out var actualResponseMetadata);
 
-                var hasUnreadableStatusCodes = SymbolApiResponseMetadataProvider.TryGetActualResponseMetadata(symbolCache, semanticModel, methodSyntax, cancellationToken, out var actualResponseMetadata);
-                var hasUndocumentedStatusCodes = false;
-                foreach (var item in actualResponseMetadata)
+                var additionalLocations = Enumerable.Empty<Location>();
+                var diagnosticProperties = ImmutableDictionary<string, string>.Empty;
+                if (!hasUnreadableStatusCodes)
                 {
-                    var location = item.ReturnStatement.GetLocation();
+                    var conventionTypes = SymbolApiResponseMetadataProvider.GetConventionTypes(symbolCache, method);
 
-                    if (item.IsDefaultResponse)
+                    var (updateableConvention, updateableConventionLocation) = GetConventionInSourceLocation(conventionTypes, cancellationToken);
+                    if (updateableConventionLocation != Location.None)
                     {
-                        if (!(HasStatusCode(declaredResponseMetadata, 200) || HasStatusCode(declaredResponseMetadata, 201)))
-                        {
-                            hasUndocumentedStatusCodes = true;
-                            syntaxNodeContext.ReportDiagnostic(Diagnostic.Create(
-                                DiagnosticDescriptors.MVC1005_ActionReturnsUndocumentedSuccessResult,
-                                location));
-                        }
+                        additionalLocations = new[] { updateableConventionLocation };
+                        diagnosticProperties = diagnosticProperties.Add(ApiConventionInSourceKey, updateableConvention.Name);
                     }
-                    else if (!HasStatusCode(declaredResponseMetadata, item.StatusCode))
+                }
+
+                var hasUndocumentedStatusCodes = false;
+                foreach (var actualMetadata in actualResponseMetadata)
+                {
+                    var location = actualMetadata.ReturnStatement.GetLocation();
+
+                    if (!DeclaredApiResponseMetadata.HasStatusCode(declaredResponseMetadata, actualMetadata))
                     {
                         hasUndocumentedStatusCodes = true;
-                        syntaxNodeContext.ReportDiagnostic(Diagnostic.Create(
-                            DiagnosticDescriptors.MVC1004_ActionReturnsUndocumentedStatusCode,
-                            location,
-                            item.StatusCode));
+                        if (actualMetadata.IsDefaultResponse)
+                        {
+
+                            syntaxNodeContext.ReportDiagnostic(Diagnostic.Create(
+                                DiagnosticDescriptors.MVC1005_ActionReturnsUndocumentedSuccessResult,
+                                location,
+                                additionalLocations,
+                                diagnosticProperties));
+                        }
+                        else
+                        {
+                            diagnosticProperties = diagnosticProperties.Add(StatusCodeKey, actualMetadata.StatusCode.ToString(CultureInfo.InvariantCulture));
+
+                            syntaxNodeContext.ReportDiagnostic(Diagnostic.Create(
+                               DiagnosticDescriptors.MVC1004_ActionReturnsUndocumentedStatusCode,
+                               location,
+                               additionalLocations,
+                               diagnosticProperties,
+                               actualMetadata.StatusCode));
+                        }
                     }
                 }
 
@@ -102,15 +126,26 @@ namespace Microsoft.AspNetCore.Mvc.Analyzers
             }, SyntaxKind.MethodDeclaration);
         }
 
-        internal IReadOnlyList<AttributeData> GetConventionTypeAttributes(ApiControllerSymbolCache symbolCache, IMethodSymbol method)
+        private (ITypeSymbol, Location) GetConventionInSourceLocation(IReadOnlyList<ITypeSymbol> conventionTypes, CancellationToken cancellationToken)
         {
-            var attributes = method.ContainingType.GetAttributes(symbolCache.ApiConventionTypeAttribute).ToArray();
-            if (attributes.Length == 0)
+            for (var i = 0; i < conventionTypes.Count; i++)
             {
-                attributes = method.ContainingAssembly.GetAttributes(symbolCache.ApiConventionTypeAttribute).ToArray();
+                var conventionType = conventionTypes[i];
+                if (conventionType.DeclaringSyntaxReferences.IsDefaultOrEmpty)
+                {
+                    continue;
+                }
+
+                var syntaxReference = conventionType.DeclaringSyntaxReferences[0];
+                var syntax = syntaxReference.GetSyntax(cancellationToken);
+                var location = syntax.GetLocation();
+                if (location.IsInSource)
+                {
+                    return (conventionType, location);
+                }
             }
 
-            return attributes;
+            return (null, Location.None);
         }
 
         internal static bool ShouldEvaluateMethod(ApiControllerSymbolCache symbolCache, IMethodSymbol method)
@@ -143,25 +178,6 @@ namespace Microsoft.AspNetCore.Mvc.Analyzers
             return true;
         }
 
-        internal static bool HasStatusCode(IList<DeclaredApiResponseMetadata> declaredApiResponseMetadata, int statusCode)
-        {
-            if (declaredApiResponseMetadata.Count == 0)
-            {
-                // When no status code is declared, a 200 OK is implied.
-                return statusCode == 200;
-            }
-
-            for (var i = 0; i < declaredApiResponseMetadata.Count; i++)
-            {
-                if (declaredApiResponseMetadata[i].StatusCode == statusCode)
-                {
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
         internal static bool HasStatusCode(IList<ActualApiResponseMetadata> actualResponseMetadata, int statusCode)
         {
             for (var i = 0; i < actualResponseMetadata.Count; i++)
@@ -171,7 +187,7 @@ namespace Microsoft.AspNetCore.Mvc.Analyzers
                     return statusCode == 200 || statusCode == 201;
                 }
 
-                else if(actualResponseMetadata[i].StatusCode == statusCode)
+                else if (actualResponseMetadata[i].StatusCode == statusCode)
                 {
                     return true;
                 }

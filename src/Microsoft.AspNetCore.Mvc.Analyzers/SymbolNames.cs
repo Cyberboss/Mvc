@@ -9,7 +9,17 @@ namespace Microsoft.AspNetCore.Mvc.Analyzers
 
         public const string ApiConventionNameMatchAttribute = "Microsoft.AspNetCore.Mvc.ApiExplorer.ApiConventionNameMatchAttribute";
 
+        public const string ApiConventionNameMatchBehavior = "Microsoft.AspNetCore.Mvc.ApiExplorer.ApiConventionNameMatchBehavior";
+
+        public const string ApiConventionNameMatchBehavior_Prefix = "Prefix";
+
+        public const string ApiConventionNameMatchBehavior_Suffix = "Suffix";
+
         public const string ApiConventionTypeMatchAttribute = "Microsoft.AspNetCore.Mvc.ApiExplorer.ApiConventionTypeMatchAttribute";
+
+        public const string ApiConventionTypeMatchBehavior = "Microsoft.AspNetCore.Mvc.ApiExplorer.ApiConventionTypeMatchBehavior";
+
+        public const string ApiConventionTypeMatchBehavior_Any = "Any";
 
         public const string ApiConventionTypeAttribute = "Microsoft.AspNetCore.Mvc.ApiConventionTypeAttribute";
 
